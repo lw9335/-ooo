@@ -19,17 +19,21 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 echo "[1/6] Installing Docker..."
-if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL https://get.docker.com | bash
+install_docker() {
+  apt-get update -qq
+  apt-get install -y -qq docker.io docker-compose-v2 curl git ca-certificates openssl
   systemctl enable --now docker
+}
+if ! command -v docker >/dev/null 2>&1; then
+  echo "  Using Ubuntu apt (works on Aliyun, no download.docker.com)..."
+  install_docker || {
+    echo "  apt install failed, trying Aliyun mirror..."
+    curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun || install_docker
+    systemctl enable --now docker
+  }
 fi
 docker --version
-
-echo "[2/6] Installing git..."
-if ! command -v git >/dev/null 2>&1; then
-  apt-get update -qq
-  apt-get install -y -qq git
-fi
+docker compose version 2>/dev/null || docker-compose --version
 
 echo "[3/6] Cloning repository..."
 if [ -d "$INSTALL_DIR/.git" ]; then
