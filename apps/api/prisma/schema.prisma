@@ -1,0 +1,195 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// 管理员（电脑后台使用，≤10 人）
+model AdminUser {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String // bcrypt 哈希
+  name      String
+  role      AdminRole @default(DISPATCHER)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdOrders DispatchOrder[] @relation("OrderCreatedBy")
+
+  @@map("admin_user")
+}
+
+enum AdminRole {
+  SUPER_ADMIN // 超级管理员
+  DISPATCHER // 调度员
+}
+
+/// 师傅档案（移动端企业微信使用，约 50 人）
+model Worker {
+  id            Int          @id @default(autoincrement())
+  name          String
+  phone         String // 联系电话（重点显示）
+  weworkUserId  String?      @unique // 企业微信 userid，免登绑定
+  avatar        String?
+  intro         String? // 简介
+  status        WorkerStatus @default(IDLE)
+  workingSince  DateTime? // 进入工作中的时间，用于 5 小时自动转空闲
+  // 预留位置字段（本期不做功能）
+  locationText  String?
+  latitude      Float?
+  longitude     Float?
+  // 统计用：累计接单量（用于派单均衡）
+  totalOrders   Int          @default(0)
+  active        Boolean      @default(true)
+  profileFilled Boolean      @default(false) // 是否已完善档案
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  skills        WorkerSkill[]
+  brands        WorkerBrand[]
+  orders        DispatchOrder[] @relation("OrderAssignedWorker")
+  notifications Notification[]
+
+  @@map("worker")
+}
+
+enum WorkerStatus {
+  IDLE // 空闲
+  WORKING // 工作中
+}
+
+/// 维修部位分类（一级/二级，可后台维护）
+model SkillCategory {
+  id        Int             @id @default(autoincrement())
+  name      String
+  parentId  Int?
+  parent    SkillCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  SkillCategory[] @relation("CategoryTree")
+  sort      Int             @default(0)
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+
+  workerSkills WorkerSkill[]
+  orders       DispatchOrder[]
+
+  @@map("skill_category")
+}
+
+/// 师傅擅长部位（多对多）
+model WorkerSkill {
+  id         Int           @id @default(autoincrement())
+  workerId   Int
+  worker     Worker        @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  categoryId Int
+  category   SkillCategory @relation(fields: [categoryId], references: [id])
+  level      Int           @default(3) // 熟练度 1-5，用于推荐加权
+
+  @@unique([workerId, categoryId])
+  @@map("worker_skill")
+}
+
+/// 品牌标签（车辆品牌 + 电池品牌）
+model Brand {
+  id        Int         @id @default(autoincrement())
+  name      String      @unique
+  type      BrandType   @default(TRUCK)
+  sort      Int         @default(0)
+  active    Boolean     @default(true)
+  createdAt DateTime    @default(now())
+
+  workerBrands WorkerBrand[]
+
+  @@map("brand")
+}
+
+enum BrandType {
+  TRUCK // 传统重卡
+  NEW_ENERGY // 新能源重卡（深向、零一）
+  BATTERY // 电池/三电（宁德时代）
+}
+
+/// 师傅擅长品牌（多对多）
+model WorkerBrand {
+  id       Int    @id @default(autoincrement())
+  workerId Int
+  worker   Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  brandId  Int
+  brand    Brand  @relation(fields: [brandId], references: [id])
+
+  @@unique([workerId, brandId])
+  @@map("worker_brand")
+}
+
+/// 派单
+model DispatchOrder {
+  id           Int         @id @default(autoincrement())
+  orderNo      String      @unique
+  brandName    String? // 车辆品牌（冗余存文本，便于历史留存）
+  categoryId   Int? // 故障部位
+  category     SkillCategory? @relation(fields: [categoryId], references: [id])
+  title        String
+  description  String?
+  status       OrderStatus @default(PENDING)
+
+  assignedWorkerId Int?
+  assignedWorker   Worker? @relation("OrderAssignedWorker", fields: [assignedWorkerId], references: [id])
+
+  createdById  Int?
+  createdBy    AdminUser? @relation("OrderCreatedBy", fields: [createdById], references: [id])
+
+  assignedAt   DateTime?
+  acceptedAt   DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@map("dispatch_order")
+}
+
+enum OrderStatus {
+  PENDING // 待派/待接
+  ASSIGNED // 已派单，待师傅接单
+  IN_PROGRESS // 进行中
+  COMPLETED // 已完成
+  CANCELLED // 已取消
+}
+
+/// 通知记录
+model Notification {
+  id        Int              @id @default(autoincrement())
+  workerId  Int
+  worker    Worker           @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  type      NotificationType @default(SYSTEM)
+  title     String
+  content   String
+  orderId   Int?
+  read      Boolean          @default(false)
+  pushed    Boolean          @default(false) // 是否已通过企业微信推送
+  createdAt DateTime         @default(now())
+
+  @@map("notification")
+}
+
+enum NotificationType {
+  DISPATCH // 派单
+  SYSTEM // 系统
+}
+
+/// 行为/统计事件（预留点击分析）
+model StatEvent {
+  id        Int      @id @default(autoincrement())
+  actorType String // admin / worker
+  actorId   Int?
+  event     String // 事件名，如 view_worker / dispatch / accept_order
+  targetId  Int?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([event])
+  @@index([actorType, actorId])
+  @@map("stat_event")
+}
