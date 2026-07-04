@@ -71,7 +71,7 @@ export default function Orders({ workerId }: { workerId: number | null }) {
               </Button>
             )}
             {o.status === 'IN_PROGRESS' && (
-              <Button size="small" type="success" onClick={() => complete(o.id)}>
+              <Button size="small" color="#07c160" onClick={() => complete(o.id)}>
                 {T.complete}
               </Button>
             )}
