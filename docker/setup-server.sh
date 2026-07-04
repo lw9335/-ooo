@@ -115,6 +115,7 @@ else
 fi
 
 echo "[5/7] Building images (first run may take 15-20 min on 2G RAM)..."
+mkdir -p "$COMPOSE_DIR/nginx/certs"
 docker compose --env-file .env build --no-cache
 
 echo "[6/7] Starting containers..."
